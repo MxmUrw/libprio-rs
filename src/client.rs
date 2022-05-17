@@ -19,13 +19,8 @@ use std::convert::TryFrom;
 /// Client is used to create Prio shares.
 #[derive(Debug)]
 pub struct Client<F: FieldElement> {
-    prng: Prng<F, SeedStreamAes128>,
     dimension: usize,
-    points_f: Vec<F>,
-    points_g: Vec<F>,
-    evals_f: Vec<F>,
-    evals_g: Vec<F>,
-    poly_mem: PolyAuxMemory<F>,
+    mem: ClientMemory<F>,
     public_key1: PublicKey,
     public_key2: PublicKey,
 }
@@ -67,13 +62,8 @@ impl<F: FieldElement> Client<F> {
         }
 
         Ok(Client {
-            prng: Prng::new()?,
             dimension,
-            points_f: vec![F::zero(); n],
-            points_g: vec![F::zero(); n],
-            evals_f: vec![F::zero(); 2 * n],
-            evals_g: vec![F::zero(); 2 * n],
-            poly_mem: PolyAuxMemory::new(n),
+            mem: ClientMemory::new(dimension)?,
             public_key1,
             public_key2,
         })
@@ -95,7 +85,7 @@ impl<F: FieldElement> Client<F> {
     where
         G: FnOnce(&mut [F]),
     {
-        let mut proof = self.prove_with(init_function);
+        let mut proof = self.mem.prove_with(self.dimension, init_function);
 
         // use prng to share the proof: share2 is the PRNG seed, and proof is mutated
         // in-place
@@ -112,19 +102,52 @@ impl<F: FieldElement> Client<F> {
         Ok((encrypted_share1, encrypted_share2))
     }
 
-    pub(crate) fn prove_with<G>(&mut self, init_function: G) -> Vec<F>
+    pub(crate) fn gen_proof(&mut self, input: &[F]) -> Vec<F> {
+        let copy_data = |share_data: &mut [F]| {
+            share_data[..].clone_from_slice(input);
+        };
+        self.mem.prove_with(self.dimension, copy_data)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ClientMemory<F> {
+    prng: Prng<F, SeedStreamAes128>,
+    points_f: Vec<F>,
+    points_g: Vec<F>,
+    evals_f: Vec<F>,
+    evals_g: Vec<F>,
+    poly_mem: PolyAuxMemory<F>,
+}
+
+impl<F: FieldElement> ClientMemory<F> {
+    pub(crate) fn new(dimension: usize) -> Result<Self, PrngError> {
+        let n = (dimension + 1).next_power_of_two();
+        Ok(Self {
+            prng: Prng::new()?,
+            points_f: vec![F::zero(); n],
+            points_g: vec![F::zero(); n],
+            evals_f: vec![F::zero(); 2 * n],
+            evals_g: vec![F::zero(); 2 * n],
+            poly_mem: PolyAuxMemory::new(n),
+        })
+    }
+}
+
+impl<F: FieldElement> ClientMemory<F> {
+    pub(crate) fn prove_with<G>(&mut self, dimension: usize, init_function: G) -> Vec<F>
     where
         G: FnOnce(&mut [F]),
     {
-        let mut proof = vec![F::zero(); proof_length(self.dimension)];
+        let mut proof = vec![F::zero(); proof_length(dimension)];
         // unpack one long vector to different subparts
-        let unpacked = unpack_proof_mut(&mut proof, self.dimension).unwrap();
+        let unpacked = unpack_proof_mut(&mut proof, dimension).unwrap();
         // initialize the data part
         init_function(unpacked.data);
         // fill in the rest
         construct_proof(
             unpacked.data,
-            self.dimension,
+            dimension,
             unpacked.f0,
             unpacked.g0,
             unpacked.h0,
@@ -185,7 +208,7 @@ fn construct_proof<F: FieldElement>(
     g0: &mut F,
     h0: &mut F,
     points_h_packed: &mut [F],
-    mem: &mut Client<F>,
+    mem: &mut ClientMemory<F>,
 ) {
     let n = (dimension + 1).next_power_of_two();
 

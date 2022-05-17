@@ -512,6 +512,7 @@ mod tests {
 
 pub mod poplar1;
 pub mod prg;
+pub mod prio2;
 pub mod prio3;
 #[cfg(test)]
 mod prio3_test;
