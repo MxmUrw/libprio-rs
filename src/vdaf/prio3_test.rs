@@ -150,6 +150,19 @@ fn test_vec_prio3_sum() {
 }
 
 #[test]
+fn test_vec_prio3_average() {
+    // Using the same test data as for the `Sum` type, since the `Average` type is basically the same.
+    let t: TPrio3<u128> =
+        serde_json::from_str(include_str!("test_vec/01/Prio3Aes128Sum.json")).unwrap();
+    let prio3 = Prio3::new_aes128_average(2, 8).unwrap();
+    let verify_key = t.verify_key.as_ref().try_into().unwrap();
+
+    for (test_num, p) in t.prep.iter().enumerate() {
+        check_prep_test_vec(&prio3, &verify_key, test_num, p);
+    }
+}
+
+#[test]
 fn test_vec_prio3_histogram() {
     let t: TPrio3<u128> =
         serde_json::from_str(include_str!("test_vec/01/Prio3Aes128Histogram.json")).unwrap();

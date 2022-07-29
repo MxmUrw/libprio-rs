@@ -37,6 +37,8 @@ use crate::field::{Field128, Field64};
 use crate::flp::gadgets::ParallelSumMultithreaded;
 #[cfg(feature = "crypto-dependencies")]
 use crate::flp::gadgets::{BlindPolyEval, ParallelSum};
+#[cfg(feature = "fixed")]
+use crate::flp::types::fixedpoint_l2::FixedPointL2BoundedVecSum;
 #[cfg(feature = "crypto-dependencies")]
 use crate::flp::types::{Average, Count, CountVec, Histogram, Sum};
 use crate::flp::Type;
@@ -46,6 +48,10 @@ use crate::vdaf::{
     Aggregatable, AggregateShare, Aggregator, Client, Collector, OutputShare, PrepareTransition,
     Share, ShareDecodingParameter, Vdaf, VdafError,
 };
+#[cfg(feature = "fixed")]
+use fixed::types::extra::*;
+#[cfg(feature = "fixed")]
+use fixed::*;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::io::Cursor;
@@ -143,6 +149,31 @@ impl Prio3Aes128Histogram {
         let buckets = buckets.iter().map(|bucket| *bucket as u128).collect();
 
         Prio3::new(num_aggregators, Histogram::new(buckets)?)
+    }
+}
+
+/// The average type. Each measurement is an integer in `[0,2^bits)` for some `0 < bits < 64` and the
+/// aggregate is the arithmetic average.
+pub type Prio3Aes128Average = Prio3<Average<Field128>, PrgAes128, 16>;
+
+impl Prio3Aes128Average {
+    /// Construct an instance of Prio3Aes128Average with the given number of aggregators and required
+    /// bit length. The bit length must not exceed 64.
+    pub fn new_aes128_average(num_aggregators: u8, bits: u32) -> Result<Self, VdafError> {
+        check_num_aggregators(num_aggregators)?;
+
+        if bits > 64 {
+            return Err(VdafError::Uncategorized(format!(
+                "bit length ({}) exceeds limit for aggregate type (64)",
+                bits
+            )));
+        }
+
+        Ok(Prio3 {
+            num_aggregators,
+            typ: Average::new(bits as usize)?,
+            phantom: PhantomData,
+        })
     }
 }
 
@@ -943,6 +974,8 @@ mod tests {
     use super::*;
     use crate::vdaf::{run_vdaf, run_vdaf_prepare};
     use assert_matches::assert_matches;
+    #[cfg(feature = "fixed")]
+    use fixed_macro::fixed;
     use rand::prelude::*;
 
     #[test]
@@ -1007,6 +1040,91 @@ mod tests {
         assert_matches!(result, Err(VdafError::Uncategorized(_)));
 
         test_prepare_state_serialization(&prio3, &1).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "fixed")]
+    fn test_prio3_bounded_fpvec_sum() {
+        // two aggregators, three entries per vector.
+        let prio3 = Prio3Aes128FixedPointL2BoundedVecSum::new(2, 3).unwrap();
+        println!("New sucessfull! ========================");
+
+        // let fp_zero = fixed!(0.0: I1F15);
+        // let fp_one = fixed!(0.901: I1F15);
+        // let fp_f = fixed!(-0.2342: I1F15);
+        // let fp_vec1 = vec!(fp_zero);//, fp_f - fp_one, fp_zero);
+        // let fp_vec2 = vec!(fp_f);//, fp_one);//, fp_f);
+
+        //let fp_high = fixed!(0.9: I1F15);
+        //let fp_2_inv  = fixed!(0.5: I1F15);
+        let fp_4_inv = fixed!(0.25: I1F15);
+        let fp_8_inv = fixed!(0.125: I1F15);
+        let fp_16_inv = fixed!(0.0625: I1F15);
+
+        // let fp_zero = fixed!(0.0: U8F8);
+        // let fp_one = fixed!(1.0: U8F8);
+        // let fp_f = fixed!(23.42: U8F8);
+        let fp_vec1 = vec![fp_4_inv, fp_8_inv, fp_16_inv];
+        let fp_vec2 = vec![fp_4_inv, fp_8_inv, fp_16_inv];
+
+        //let fp_vec3 = vec![fp_high, fp_high, fp_high];
+        //let fp_vec4 = vec![fp_4_inv, fp_8_inv, fp_16_inv];
+
+        let fp_list = [fp_vec1, fp_vec2];
+        // let fp_list = [fp_vec3, fp_vec1];
+        assert_eq!(
+            run_vdaf(&prio3, &(), fp_list).unwrap(),
+            vec!(0.5, 0.25, 0.125),
+            // vec!(0.75, 0.625, 0.5625)
+        );
+
+        //
+        // norm too big
+        //
+        // TODO: Update this test!
+        //       It now fails with a different error because
+        //       it fails to early
+        //
+        // let fp_toobig = [fp_vec4, fp_vec3];
+        // assert_matches!(
+        //     run_vdaf(&prio3, &(), fp_toobig),
+        //     Err(VdafError::Uncategorized(_))
+        // );
+
+        let mut verify_key = [0; 16];
+        thread_rng().fill(&mut verify_key[..]);
+        let nonce = b"This is a good nonce.";
+
+        let mut input_shares = prio3.shard(&vec![fp_4_inv, fp_8_inv, fp_16_inv]).unwrap();
+        input_shares[0].joint_rand_param.as_mut().unwrap().blind.0[0] ^= 255;
+        let result = run_vdaf_prepare(&prio3, &verify_key, &(), nonce, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        let mut input_shares = prio3.shard(&vec![fp_4_inv, fp_8_inv, fp_16_inv]).unwrap();
+        input_shares[0]
+            .joint_rand_param
+            .as_mut()
+            .unwrap()
+            .seed_hint
+            .0[0] ^= 255;
+        let result = run_vdaf_prepare(&prio3, &verify_key, &(), nonce, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        let mut input_shares = prio3.shard(&vec![fp_4_inv, fp_8_inv, fp_16_inv]).unwrap();
+        assert_matches!(input_shares[0].input_share, Share::Leader(ref mut data) => {
+            data[0] += Field64::one();
+        });
+        let result = run_vdaf_prepare(&prio3, &verify_key, &(), nonce, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        let mut input_shares = prio3.shard(&vec![fp_4_inv, fp_8_inv, fp_16_inv]).unwrap();
+        assert_matches!(input_shares[0].proof_share, Share::Leader(ref mut data) => {
+                data[0] += Field64::one();
+        });
+        let result = run_vdaf_prepare(&prio3, &verify_key, &(), nonce, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        test_prepare_state_serialization(&prio3, &vec![fp_4_inv, fp_8_inv, fp_16_inv]).unwrap();
     }
 
     #[test]
