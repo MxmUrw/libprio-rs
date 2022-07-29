@@ -4,10 +4,6 @@
 
 use crate::field::FieldElement;
 use crate::flp::gadgets::PolyEval;
-use crate::flp::types_utilities::{
-    decode_from_bitvector_representation, encode_into_bitvector_representation_slice,
-    truncate_call_check, valid_call_check,
-};
 use crate::flp::{FlpError, Gadget, Type};
 use crate::polynomial::poly_range_check;
 use fixed::traits::Fixed;
@@ -234,9 +230,8 @@ where
             vec![Self::Field::zero(); self.bits_per_entry * self.entries + self.bits_for_norm];
         //
         for (l, entry) in integer_entries.clone().iter().enumerate() {
-            encode_into_bitvector_representation_slice(
+            Self::Field::encode_into_bitvector_representation_slice(
                 entry,
-                self.max_entry,
                 &mut encoded[l * self.bits_per_entry..(l + 1) * self.bits_per_entry],
             )?;
         }
@@ -259,9 +254,8 @@ where
         println!("The bit encoding is: ");
         //
         // push the bits of the norm
-        encode_into_bitvector_representation_slice(
+        Self::Field::encode_into_bitvector_representation_slice(
             &norm_int,
-            self.max_encoded_norm,
             &mut encoded[self.range_norm_begin..self.range_norm_end],
         )?;
         println!("");
@@ -316,7 +310,7 @@ where
         _num_shares: usize,
     ) -> Result<Self::Field, FlpError> {
         println!("Inside valid! ====================");
-        valid_call_check(self, input, joint_rand)?;
+        self.valid_call_check(input, joint_rand)?;
 
         //--------------------------------------------
         // range checking
@@ -345,9 +339,10 @@ where
         //
         // an iterator over the decoded entries
         println!("before entry decoding");
-        let decoded_entries = input[0..self.entries * self.bits_per_entry]
+        let decoded_entries : Result<Vec<_>, _> = input[0..self.entries * self.bits_per_entry]
             .chunks(self.bits_per_entry)
-            .map(decode_from_bitvector_representation);
+            .map(Self::Field::decode_from_bitvector_representation)
+            .collect();
         //
         // the constant bit
         let num_of_clients = <Self::Field as FieldElement>::Integer::try_from(_num_shares).unwrap();
@@ -356,7 +351,7 @@ where
         //
         // the computed norm
         let computed_norm = compute_norm_of_entries(
-            decoded_entries,
+            decoded_entries?,
             self.bits_per_entry,
             constant_part_multiplier,
             &mut |x| g[1].call(std::slice::from_ref(&x)),
@@ -366,7 +361,7 @@ where
         let claimed_norm_enc = &input[self.range_norm_begin..self.range_norm_end];
         println!("before norm decoding, it is: {:?}", claimed_norm_enc);
         println!("parameters are: \nself.entries: {}\nself.bits_per_entry: {}\nself.bits_for_norm: {}\nnorm_length: {}", self.entries, self.bits_per_entry, self.bits_for_norm, claimed_norm_enc.len());
-        let claimed_norm = decode_from_bitvector_representation(claimed_norm_enc);
+        let claimed_norm = Self::Field::decode_from_bitvector_representation(claimed_norm_enc)?;
         //
         // add the check that computed norm == claimed norm
         validity_check += r * (computed_norm - claimed_norm);
@@ -384,7 +379,7 @@ where
     fn truncate(&self, input: Vec<Self::Field>) -> Result<Vec<Self::Field>, FlpError> {
         println!("Inside truncate!! ===========================");
         println!("input: {:?}", input);
-        truncate_call_check(self, &input)?;
+        self.truncate_call_check(&input)?;
 
         let mut decoded_vector = vec![];
 

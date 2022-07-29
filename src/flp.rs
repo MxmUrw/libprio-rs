@@ -55,7 +55,6 @@ use std::fmt::Debug;
 
 pub mod gadgets;
 pub mod types;
-pub mod types_utilities;
 
 /// Errors propagated by methods in this module.
 #[derive(Debug, thiserror::Error)]
