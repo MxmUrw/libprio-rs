@@ -4,11 +4,6 @@
 
 use crate::field::FieldElement;
 use crate::flp::gadgets::{BlindPolyEval, Mul, ParallelSumGadget, PolyEval};
-use crate::flp::types_utilities::{
-    call_gadget_on_vec_entries, decode_from_bitvector_representation, decode_result,
-    decode_result_vec, encode_into_bitvector_representation, truncate_call_check, valid_call_check,
-    valid_int_from_usize,
-};
 use crate::flp::{FlpError, Gadget, Type};
 use crate::polynomial::poly_range_check;
 use std::convert::{TryFrom, TryInto};
