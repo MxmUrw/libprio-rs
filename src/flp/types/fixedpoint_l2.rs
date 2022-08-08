@@ -61,8 +61,9 @@ where
 
     // add term for a given `entry` to `norm_accumulator`
     for entry in entries.into_iter() {
-        let summand = sq(entry)? + F::from(constant_part) * constant_part_multiplier
-            - F::from(linear_part) * (entry);
+        let summand = sq(entry)?;
+        // + F::from(constant_part) * constant_part_multiplier
+        // - F::from(linear_part) * (entry);
         norm_accumulator += summand;
     }
     Ok(norm_accumulator)
@@ -139,8 +140,10 @@ impl<T: Fixed, F: FieldElement> FixedPointL2BoundedVecSum<T, F> {
         // we need to compute the norm ourselves to verify it's bounded, so we need to make sure
         // that the maximal value that the norm can take fits into our field.
         // it is: `entries * 2^(2*bits + 1)`
-        let usize_max_norm_value: usize = entries * (1 << (2 * bits_per_entry + 1));
-        F::valid_integer_try_from(usize_max_norm_value)?;
+        //
+        // TODO: rewrite this for new encoding!
+        // let usize_max_norm_value: usize = entries * (1 << (2 * bits_per_entry + 1));
+        // F::valid_integer_try_from(usize_max_norm_value)?;
 
         ///////////////////////////
         // return the constructed self
