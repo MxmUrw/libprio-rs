@@ -4,9 +4,9 @@
 
 use crate::field::FieldElement;
 use crate::flp::gadgets::PolyEval;
+use crate::flp::types::call_gadget_on_vec_entries;
 use crate::flp::{FlpError, Gadget, Type};
 use crate::polynomial::poly_range_check;
-use crate::flp::types::call_gadget_on_vec_entries;
 use fixed::traits::Fixed;
 
 use std::{
@@ -26,6 +26,46 @@ pub trait CompatibleFloat<F: FieldElement> {
     fn to_float(t: F, c: usize) -> Self::Float;
     /// Represent a value of this type as an integer in the given field.
     fn to_field_integer(t: Self) -> <F as FieldElement>::Integer;
+}
+
+/// Compute the square of the L2 norm of a vector of field elements.
+///
+/// The entries are encoded fixed-point numbers in [-1,1) represented as field elements in [0, 2^n),
+/// where n is the number of bits the fixed-point representation has. ie to encode fixed-point x:
+/// enc(x) = 2^(n-1) * x + 2^(n-1)
+/// with inverse
+/// dec(y) = (y - 2^(n-1)) * 2^(1-n)
+/// to compute the sum of the squares of fixed-point numbers, we need to compute the following sum
+/// on the field element encoding:
+/// sum for y in entries: dec(y)^2 = (y^2 - y*2^n + 2^(2n-2)) * 2^(2-2n)
+/// we omit computation of the latter factor, as it is constant in the input and we only want to
+/// compare with the claimed norm.
+/// as the constant summand 2^(2n-2) is distributed among the clients, we multiply with a share of 1.
+fn compute_norm_of_entries<F, Fs, SquareFun>(
+    entries: Fs,
+    bits_per_entry: usize,
+    constant_part_multiplier: F,
+    sq: &mut SquareFun,
+) -> Result<F, FlpError>
+where
+    F: FieldElement,
+    Fs: IntoIterator<Item = F>,
+    SquareFun: FnMut(F) -> Result<F, FlpError>,
+{
+    // initialize `norm_accumulator`
+    let mut norm_accumulator = F::zero();
+
+    // constants
+    let constant_part = F::valid_integer_try_from(1 << (2 * bits_per_entry - 2))?; // = 2^(2n-2)
+    let linear_part = F::valid_integer_try_from(1 << (bits_per_entry))?; // = 2^n
+
+    // add term for a given `entry` to `norm_accumulator`
+    for entry in entries.into_iter() {
+        let summand = sq(entry)? + F::from(constant_part) * constant_part_multiplier
+            - F::from(linear_part) * (entry);
+        norm_accumulator += summand;
+    }
+    Ok(norm_accumulator)
 }
 
 /// The fixed point vector sum data type. Each measurement is a vector of fixed point numbers of type T, and the
@@ -121,51 +161,6 @@ impl<T: Fixed, F: FieldElement> FixedPointL2BoundedVecSum<T, F> {
     }
 }
 
-/////////////////////////////////////////////////////////////////////////////////
-// helper functions
-
-// computing the square of the L2 norm of a vector of field elements.
-// the entries are encoded fixed-point numbers in [-1,1) represented as field elements in [0, 2^n)
-// where n is the number of bits the fixed-point representation had. ie to encode fixed-point x:
-// enc(x) = 2^(n-1) * x + 2^(n-1)
-// with inverse
-// dec(y) = (y - 2^(n-1)) * 2^(1-n)
-// to compute the sum of the squares of fixed-point numbers, we need to compute the following sum
-// on the field element encoding:
-// sum for y in entries: dec(y)^2 = (y^2 - y*2^n + 2^(2n-2)) * 2^(2-2n)
-// we omit computation of the latter factor, as it is constant in the input and we only want to
-// compare with the claimed norm.
-// as the constant summand 2^(2n-2) is distributed among the clients, we multiply with a share of 1
-fn compute_norm_of_entries<F, Fs, SquareFun>(
-    entries: Fs,
-    bits_per_entry: usize,
-    constant_part_multiplier: F,
-    sq: &mut SquareFun,
-) -> Result<F, FlpError>
-where
-    F: FieldElement,
-    Fs: IntoIterator<Item = F>,
-    SquareFun: FnMut(F) -> Result<F, FlpError>,
-{
-    //--------------------------------------------
-    // norm computation
-    //
-    // We need to ensure that norm(entries) = claimed_norm
-    // let entries = &input[0..self.entries*self.bits_per_entry];
-    let mut computed_norm = F::zero();
-
-    // constants
-    let constant_part = F::valid_integer_try_from(1 << (2 * bits_per_entry - 2))?; // = 2^(2n-2)
-    let linear_part = F::valid_integer_try_from(1 << (bits_per_entry))?; // = 2^n
-
-    for entry in entries.into_iter() {
-        let summand = sq(entry)? + F::from(constant_part) * constant_part_multiplier
-            - F::from(linear_part) * (entry);
-        computed_norm += summand;
-    }
-    Ok(computed_norm)
-}
-
 impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F>
 where
     T: CompatibleFloat<F>,
@@ -209,12 +204,10 @@ where
         //
         // compute the norm
         let field_entries = integer_entries.iter().map(|&x| F::from(x));
-        let norm = compute_norm_of_entries(
-            field_entries,
-            self.bits_per_entry,
-            F::one(),
-            &mut |x| Ok(x * x),
-        )?;
+        let norm =
+            compute_norm_of_entries(field_entries, self.bits_per_entry, F::one(), &mut |x| {
+                Ok(x * x)
+            })?;
         let norm_int = <F as FieldElement>::Integer::from(norm);
         //
         //
@@ -288,7 +281,8 @@ where
         // we do the check directly for all bits [0..entries*bits_per_entry + bits_for_norm].
         //
         // Check that each element is a 0 or 1:
-        let mut validity_check = call_gadget_on_vec_entries(&mut g[0], &input[0..self.range_norm_end], joint_rand[0])?;
+        let mut validity_check =
+            call_gadget_on_vec_entries(&mut g[0], &input[0..self.range_norm_end], joint_rand[0])?;
 
         //--------------------------------------------
         // norm computation
