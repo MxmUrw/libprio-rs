@@ -210,14 +210,12 @@ pub trait FieldElement:
         input: &Self::Integer,
         output: &mut [Self],
     ) -> Result<(), FieldError> {
-        let bits = output.len();
-
         // Create a mutable copy of `input`. In each iteration of the following loop we take the
         // least significant bit, and shift input to the right by one bit.
         let mut i = *input;
 
         let one = Self::Integer::from(Self::one());
-        for (l, bit) in output.iter_mut().enumerate() {
+        for (_, bit) in output.iter_mut().enumerate() {
             let w = Self::from(i & one);
             *bit = w;
             i = i >> one;

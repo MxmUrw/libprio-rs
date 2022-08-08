@@ -6,7 +6,7 @@ use crate::field::FieldElement;
 use crate::flp::gadgets::{BlindPolyEval, Mul, ParallelSumGadget, PolyEval};
 use crate::flp::{FlpError, Gadget, Type};
 use crate::polynomial::poly_range_check;
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryInto;
 use std::marker::PhantomData;
 
 #[cfg(feature = "fixed")]

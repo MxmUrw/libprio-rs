@@ -136,6 +136,30 @@ impl Prio3Aes128Sum {
     }
 }
 
+/// The fixed point vector sum type. Each measurement is a vector of 64-bit fixed point decimals
+/// with 8 fractional digits and the aggregate is the sum. The verification function ensures the
+/// L2 norm of the vector is <= 1.
+#[cfg(feature = "fixed")]
+#[cfg_attr(docsrs, doc(cfg(feature = "fixed")))]
+pub type Prio3Aes128FixedPointL2BoundedVecSum =
+    Prio3<FixedPointL2BoundedVecSum<FixedI16<U15>, Field64>, PrgAes128, 16>;
+
+#[cfg(feature = "fixed")]
+#[cfg_attr(docsrs, doc(cfg(feature = "fixed")))]
+impl Prio3Aes128FixedPointL2BoundedVecSum {
+    /// Construct an instance of this VDAF with the given number of aggregators and number of
+    /// vector entries.
+    pub fn new_aes128_fixed_l2bounded_vec_sum(num_aggregators: u8, entries: usize) -> Result<Self, VdafError> {
+        check_num_aggregators(num_aggregators)?;
+
+        Ok(Prio3 {
+            num_aggregators,
+            typ: FixedPointL2BoundedVecSum::new(entries)?,
+            phantom: PhantomData,
+        })
+    }
+}
+
 /// The histogram type. Each measurement is an unsigned integer and the result is a histogram
 /// representation of the distribution. The bucket boundaries are fixed in advance.
 #[cfg(feature = "crypto-dependencies")]
@@ -1021,7 +1045,7 @@ mod tests {
     #[cfg(feature = "fixed")]
     fn test_prio3_bounded_fpvec_sum() {
         // two aggregators, three entries per vector.
-        let prio3 = Prio3Aes128FixedPointL2BoundedVecSum::new(2, 3).unwrap();
+        let prio3 = Prio3Aes128FixedPointL2BoundedVecSum::new_aes128_fixed_l2bounded_vec_sum(2, 3).unwrap();
         println!("New sucessfull! ========================");
 
         // let fp_zero = fixed!(0.0: I1F15);
