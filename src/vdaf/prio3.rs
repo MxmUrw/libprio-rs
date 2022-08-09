@@ -1070,23 +1070,15 @@ mod tests {
         let fp_vec1 = vec![fp_4_inv, fp_8_inv, fp_16_inv];
         let fp_vec2 = vec![fp_4_inv, fp_8_inv, fp_16_inv];
 
-        let fp_vec3 = vec![-fp_4_inv, -fp_8_inv, -fp_16_inv];
-        let fp_vec4 = vec![-fp_4_inv, -fp_8_inv, -fp_16_inv];
-
-        // let fp_vec3 = vec![fp_high, fp_high, fp_high];
+        //let fp_vec3 = vec![fp_high, fp_high, fp_high];
         //let fp_vec4 = vec![fp_4_inv, fp_8_inv, fp_16_inv];
 
         let fp_list = [fp_vec1, fp_vec2];
+        // let fp_list = [fp_vec3, fp_vec1];
         assert_eq!(
             run_vdaf(&prio3, &(), fp_list).unwrap(),
             vec!(0.5, 0.25, 0.125),
             // vec!(0.75, 0.625, 0.5625)
-        );
-
-        let fp_list2 = [fp_vec3, fp_vec4];
-        assert_eq!(
-            run_vdaf(&prio3, &(), fp_list2).unwrap(),
-            vec!(-0.5, -0.25, -0.125),
         );
 
         //
