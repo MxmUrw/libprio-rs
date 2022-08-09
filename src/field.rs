@@ -277,7 +277,7 @@ pub trait FieldElement:
                 return true;
             }
         }
-        return false;
+        false
     }
 }
 
