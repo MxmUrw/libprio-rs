@@ -9,26 +9,29 @@ use fixed::FixedI16;
 impl<U> CompatibleFloat<Field64> for FixedI16<U> {
     type Float = f64;
     fn to_float(d: Field64, c: usize) -> f64 {
+        // our bitsize is 16, so half-bitsize for positive and negative is 15
+        let half = 1 << 15;
+
         // get integer representation of field element
         let i: u64 = <Field64 as FieldElement>::Integer::from(d);
 
         // get field modulus
         let p: u64 = Field64::modulus();
 
-        // elements in the left half of the field are positive,
-        // in the right half are negative
-        let half = p / 2;
-
         // check whether the given integer was originally negative or positive
         //  - positive: `i \in [0 , 2^(n-1)-1]`
         //  - negative: `i \in [p-2^(n-1) , p-1]`
-        if i < half {
+        let result = if i < half {
             let f = i as f64;
             f * f64::powi(2.0, -15)
-        } else {
+        } else if p - half <= i && i < p {
             let f = (p - i) as f64;
             -f * f64::powi(2.0, -15)
-        }
+        } else {
+            panic!();
+        };
+
+        result
     }
 
     fn to_field_integer(fp: FixedI16<U>) -> <Field64 as FieldElement>::Integer {
